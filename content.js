@@ -20,6 +20,7 @@
   const STORAGE_KEY = 'vspeed';
   const POS_KEY = 'vspeedPos';
   const ICON_KEY = 'vspeedIcon';
+  const ENABLED_KEY = 'vspeedEnabled';
   const DEFAULT_SPEED = 1;
   const MIN_SPEED = 0.25;
   const MAX_SPEED = 16; // Chrome 实际会将超出范围的值 clamp 到 16
@@ -38,13 +39,16 @@
   let ui = null;                    // UI 对象（render 方法）
   let iconStyle = 'bolt';           // 悬浮球图标样式（默认闪电）
   let pinned = false;               // 是否"钉住"展开（点击切换，悬停不自动收起）
+  let enabled = true;               // 插件是否启用（选项页开关控制）
+  let watcher = null;               // DOM 监听器（MutationObserver），禁用时断开
+  let savedPos = null;              // 记忆的控件位置（重新启用时复用）
 
   // ============================================================
   // 持久化
   // ============================================================
   async function loadSaved() {
     try {
-      const data = await chrome.storage.local.get([STORAGE_KEY, POS_KEY, ICON_KEY]);
+      const data = await chrome.storage.local.get([STORAGE_KEY, POS_KEY, ICON_KEY, ENABLED_KEY]);
       const sp = Number(data[STORAGE_KEY]);
       if (Number.isFinite(sp) && sp >= MIN_SPEED && sp <= MAX_SPEED) {
         currentSpeed = sp;
@@ -52,6 +56,7 @@
       if (ICON_STYLES.indexOf(data[ICON_KEY]) !== -1) {
         iconStyle = data[ICON_KEY];
       }
+      enabled = data[ENABLED_KEY] !== false; // 未设置过时默认启用
       return data[POS_KEY] || null;
     } catch (err) {
       return null;
@@ -59,15 +64,16 @@
   }
 
   function saveSpeed() {
-    try { chrome.storage.local.set({ [STORAGE_KEY]: currentSpeed }); } catch (e) { /* ignore */ }
+    try { chrome.storage.local.set({ [STORAGE_KEY]: currentSpeed }).catch(() => {}); } catch (e) { /* ignore */ }
   }
 
   function saveIconStyle() {
-    try { chrome.storage.local.set({ [ICON_KEY]: iconStyle }); } catch (e) { /* ignore */ }
+    try { chrome.storage.local.set({ [ICON_KEY]: iconStyle }).catch(() => {}); } catch (e) { /* ignore */ }
   }
 
   function savePos(left, top) {
-    try { chrome.storage.local.set({ [POS_KEY]: { left, top } }); } catch (e) { /* ignore */ }
+    savedPos = { left, top }; // 同步内存值，禁用→重新启用时复用最新位置
+    try { chrome.storage.local.set({ [POS_KEY]: savedPos }).catch(() => {}); } catch (e) { /* ignore */ }
   }
 
   // ============================================================
@@ -107,10 +113,17 @@
   }
 
   function trackVideo(v) {
-    if (!v || v === video) return;
+    if (v === video) return; // 同一元素，无需处理
+    // 先清理旧 video 的引用与监听（页面视频可能已被移除）
     if (video) {
       video.removeEventListener('loadedmetadata', onMeta);
       video.removeEventListener('ratechange', onRate);
+      video = null;
+    }
+    if (!v) {
+      // 页面所有 video 均已移除：状态清理，UI 显示无视频
+      if (ui) ui.render(currentSpeed);
+      return;
     }
     video = v;
     video.addEventListener('loadedmetadata', onMeta);
@@ -151,6 +164,7 @@
     scan();
     const mo = new MutationObserver(() => scan());
     mo.observe(document.documentElement, { childList: true, subtree: true });
+    return mo; // 调用方持有引用，禁用时可 disconnect
   }
 
   // ============================================================
@@ -195,10 +209,10 @@
         .wrap {
           position: relative;
           font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
-          color: #e8e8e8;
+          color: #f2f5ff;
           user-select: none;
         }
-        /* ---- 悬浮球 ---- */
+        /* ---- 悬浮球（发光渐变 + 内侧高光） ---- */
         .ball {
           width: ${BALL_SIZE}px;
           height: ${BALL_SIZE}px;
@@ -208,37 +222,57 @@
           justify-content: center;
           background: linear-gradient(135deg, #6a5af9 0%, #4a9eff 100%);
           color: #fff;
-          box-shadow: 0 4px 16px rgba(74, 120, 255, 0.55), 0 2px 6px rgba(0, 0, 0, 0.25);
+          box-shadow:
+            0 4px 14px rgba(90, 120, 255, 0.5),
+            0 0 12px rgba(90, 120, 255, 0.28),
+            inset 0 1px 0 rgba(255, 255, 255, 0.28);
           cursor: pointer;
           transition: transform .18s ease, box-shadow .18s ease;
           box-sizing: border-box;
         }
         .ball:hover {
           transform: scale(1.08);
-          box-shadow: 0 6px 22px rgba(74, 120, 255, 0.7), 0 2px 8px rgba(0, 0, 0, 0.3);
+          box-shadow:
+            0 6px 20px rgba(90, 120, 255, 0.65),
+            0 0 18px rgba(90, 120, 255, 0.4),
+            inset 0 1px 0 rgba(255, 255, 255, 0.3);
         }
-        .ball .glyph { font-weight: 700; line-height: 1; }
+        .ball .glyph { font-weight: 700; line-height: 1; text-shadow: 0 1px 3px rgba(8, 12, 24, 0.35); }
         .ball .glyph.text { font-size: 15px; letter-spacing: .3px; }
         .ball .glyph.emoji { font-size: 21px; }
-        /* ---- 控制面板（毛玻璃） ---- */
+        /* ---- 控制面板（glassmorphism，与 options 弹窗玻璃卡片一致） ---- */
         .panel {
           position: absolute;
           top: 0;
           left: 0;
           width: ${PANEL_WIDTH}px;
-          background: rgba(24, 26, 32, 0.86);
-          -webkit-backdrop-filter: blur(10px) saturate(140%);
-          backdrop-filter: blur(10px) saturate(140%);
-          border: 1px solid rgba(255, 255, 255, 0.12);
-          border-radius: 14px;
-          color: #e8e8e8;
-          box-shadow: 0 10px 32px rgba(0, 0, 0, 0.5);
+          background: rgba(30, 34, 56, 0.55); /* 回退：不支持 backdrop-filter 时保证可读性 */
+          border: 1px solid rgba(255, 255, 255, 0.16);
+          border-radius: 16px;
+          color: #f2f5ff;
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
           overflow: hidden;
           opacity: 0;
           transform: scale(.85) translateY(4px);
           transform-origin: top left;
           pointer-events: none;
           transition: opacity .16s ease, transform .16s ease;
+        }
+        @supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+          .panel {
+            /* 玻璃拟态：黑色压制层 + 9% 白填充，与 options glass-card 一致 */
+            background:
+              linear-gradient(rgba(8, 12, 24, 0.40), rgba(8, 12, 24, 0.40)),
+              rgba(255, 255, 255, 0.09);
+            -webkit-backdrop-filter: blur(16px);
+            backdrop-filter: blur(16px);
+            border-color: rgba(255, 255, 255, 0.16); /* 1px 细半透明白描边 */
+            color: #f2f5ff;
+            text-shadow: 0 1px 3px rgba(8, 12, 24, 0.5); /* 浅色网页可读性 */
+            box-shadow:
+              0 8px 24px rgba(4, 8, 24, 0.35),
+              inset 0 1px 0 rgba(255, 255, 255, 0.10);
+          }
         }
         .wrap.expanded .panel {
           opacity: 1;
@@ -248,61 +282,75 @@
         .wrap.expanded .ball { display: none; }
         .header {
           display: flex; align-items: center; gap: 8px;
-          padding: 8px 10px;
+          padding: 9px 11px;
           cursor: move;
-          background: rgba(255, 255, 255, 0.06);
+          background: rgba(255, 255, 255, 0.05);
+          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
         }
-        .title { flex: 1; font-weight: 600; font-size: 12px; }
+        .head-logo {
+          width: 18px; height: 18px; flex-shrink: 0;
+          border-radius: 5px;
+          background: linear-gradient(135deg, #6a5af9, #4a9eff);
+          display: flex; align-items: center; justify-content: center;
+          font-size: 9px; color: #fff;
+          box-shadow: 0 2px 6px rgba(90, 120, 255, 0.4);
+        }
+        .title { flex: 1; font-weight: 600; font-size: 12px; letter-spacing: .2px; }
         .speed {
           font-variant-numeric: tabular-nums;
-          color: #6cf; font-weight: 700; min-width: 42px; text-align: right;
+          color: #63d8a4; font-weight: 700; font-size: 13px;
+          min-width: 42px; text-align: right;
         }
         .fold {
-          border: 0; background: transparent; color: #ccc; cursor: pointer;
-          font-size: 14px; line-height: 1; padding: 2px 6px; border-radius: 4px;
+          border: 0; background: transparent; color: #a8b0c4; cursor: pointer;
+          font-size: 14px; line-height: 1; padding: 2px 6px; border-radius: 6px;
         }
-        .fold:hover { background: rgba(255, 255, 255, 0.15); color: #fff; }
-        .body { padding: 10px; }
-        .slider { width: 100%; accent-color: #4a9eff; cursor: pointer; margin: 0; }
-        .row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+        .fold:hover { background: rgba(255, 255, 255, 0.12); color: #fff; }
+        .body { padding: 12px 12px 10px; }
+        .slider { width: 100%; accent-color: #63d8a4; cursor: pointer; margin: 0; }
+        .row { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
         .row button {
           flex: 1 0 21%;
-          background: rgba(255, 255, 255, 0.08);
+          background: rgba(255, 255, 255, 0.07);
           border: 1px solid rgba(255, 255, 255, 0.12);
-          color: #e8e8e8;
-          border-radius: 6px;
-          padding: 5px 0;
+          color: #eef1f8;
+          border-radius: 8px;
+          padding: 6px 0;
           cursor: pointer;
           font-size: 12px;
-          transition: background .12s ease, border-color .12s ease;
+          font-weight: 500;
+          transition: background .12s ease, border-color .12s ease, transform .1s ease;
         }
-        .row button:hover { background: rgba(74, 158, 255, 0.35); border-color: #4a9eff; }
-        .row button:active { transform: scale(0.96); }
+        .row button:hover {
+          background: linear-gradient(135deg, rgba(106, 90, 249, 0.5), rgba(74, 158, 255, 0.5));
+          border-color: rgba(99, 216, 164, 0.5);
+        }
+        .row button:active { transform: scale(0.95); }
         /* ---- 球图标样式选择 ---- */
         .style-row {
-          display: flex; align-items: center; gap: 6px;
-          margin-top: 9px; padding-top: 8px;
-          border-top: 1px dashed rgba(255, 255, 255, 0.14);
+          display: flex; align-items: center; gap: 7px;
+          margin-top: 10px; padding-top: 9px;
+          border-top: 1px dashed rgba(255, 255, 255, 0.12);
         }
-        .style-row .label { font-size: 11px; color: #999; flex: 1; }
+        .style-row .label { font-size: 11px; color: #a8b0c4; flex: 1; letter-spacing: .2px; }
         .style-opt {
-          width: 30px; height: 30px;
+          width: 28px; height: 28px;
           border-radius: 50%;
-          border: 1px solid rgba(255, 255, 255, 0.18);
-          background: rgba(255, 255, 255, 0.07);
-          color: #e8e8e8;
+          border: 1px solid rgba(255, 255, 255, 0.16);
+          background: rgba(255, 255, 255, 0.06);
+          color: #eef1f8;
           font-size: 13px;
           cursor: pointer;
           display: flex; align-items: center; justify-content: center;
           transition: all .12s ease;
         }
-        .style-opt:hover { background: rgba(255, 255, 255, 0.16); }
+        .style-opt:hover { background: rgba(255, 255, 255, 0.14); }
         .style-opt.active {
-          background: rgba(74, 158, 255, 0.4);
-          border-color: #4a9eff;
-          box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.25);
+          background: rgba(99, 216, 164, 0.18);
+          border-color: #63d8a4;
+          box-shadow: 0 0 0 2px rgba(99, 216, 164, 0.2), 0 0 10px rgba(99, 216, 164, 0.25);
         }
-        .hint { margin-top: 8px; color: #999; font-size: 11px; text-align: center; }
+        .hint { margin-top: 9px; color: #8a93a8; font-size: 10.5px; text-align: center; letter-spacing: .2px; }
       </style>
       <div class="wrap">
         <div class="ball" data-role="ball" title="视频倍速控制（点击固定展开）">
@@ -310,7 +358,8 @@
         </div>
         <div class="panel" data-role="panel">
           <div class="header">
-            <span class="title">▶ 倍速控制</span>
+            <span class="head-logo" aria-hidden="true">▶</span>
+            <span class="title">倍速控制</span>
             <span class="speed" data-role="speed">1x</span>
             <button class="fold" data-role="fold" title="收起">–</button>
           </div>
@@ -421,7 +470,8 @@
     };
     ball.addEventListener('mousedown', onDown);
     header.addEventListener('mousedown', onDown);
-    document.addEventListener('mousemove', (e) => {
+    // 命名处理器，便于 destroy() 时移除（避免禁用→启用循环累积监听器）
+    const onMove = (e) => {
       if (!dragging) return;
       if (!moved) {
         const cur = root.getBoundingClientRect();
@@ -435,12 +485,14 @@
       root.style.top = y + 'px';
       root.style.right = 'auto';
       root.style.bottom = 'auto';
-    });
-    document.addEventListener('mouseup', () => {
+    };
+    const onUp = () => {
       if (!dragging) return;
       dragging = false;
       savePos(parseFloat(root.style.left) || 0, parseFloat(root.style.top) || 0);
-    });
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
 
     // ---- UI 接口 ----
     ui = {
@@ -455,6 +507,19 @@
           video && Number.isFinite(video.playbackRate) ? String(video.playbackRate) : 'none'
         );
       },
+      // 禁用时移除整个控件、解除视频与文档级监听（DOM 变化监听由调用方 disconnect）
+      destroy() {
+        if (video) {
+          video.removeEventListener('loadedmetadata', onMeta);
+          video.removeEventListener('ratechange', onRate);
+          video = null;
+        }
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        if (root && root.parentNode) {
+          root.parentNode.removeChild(root);
+        }
+      },
     };
 
     document.body.appendChild(root);
@@ -465,8 +530,32 @@
   // 入口
   // ============================================================
   (async () => {
-    const savedPos = await loadSaved();
-    buildUI(savedPos);
-    startWatching();
+    savedPos = await loadSaved();
+    if (enabled) {
+      buildUI(savedPos);
+      watcher = startWatching();
+    }
+
+    // 监听选项页的启用/禁用切换：对已打开的页面即时生效，无需刷新
+    try {
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area !== 'local') return;
+        const ch = changes[ENABLED_KEY];
+        // 与 options.js 判定一致：仅显式布尔值生效，忽略 undefined/非布尔
+        if (!ch || typeof ch.newValue !== 'boolean') return;
+        const on = ch.newValue;
+        if (on && !enabled) {
+          // 重新启用：重建控件 + 恢复视频监听
+          enabled = true;
+          if (!ui) buildUI(savedPos);
+          if (!watcher) watcher = startWatching();
+        } else if (!on && enabled) {
+          // 禁用：收起悬浮球、断开监听、停止控制
+          enabled = false;
+          if (watcher) { watcher.disconnect(); watcher = null; }
+          if (ui) { ui.destroy(); ui = null; }
+        }
+      });
+    } catch (e) { /* storage 不可用时忽略 */ }
   })();
 })();

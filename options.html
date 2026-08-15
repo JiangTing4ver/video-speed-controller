@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>视频倍速控制器</title>
+<style>
+  /* ===== 基础：弹窗本体 ===== */
+  :root {
+    --bg-solid: #0d1120;          /* 实色深邃深蓝 */
+    --text-strong: #f5f7ff;       /* 主文字：接近纯白 */
+    --text-soft: #a8b0c4;         /* 次要文字：柔和浅灰 */
+    --text-muted: #8a93a8;        /* 辅助：版本号等（可读灰色，不过淡） */
+    --mint: #63d8a4;              /* 低饱和薄荷绿 */
+    --mint-glow: rgba(99, 216, 164, 0.3);
+    --border-light: rgba(255, 255, 255, 0.16);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 360px; }
+  body {
+    font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    background:
+      radial-gradient(140% 70% at 50% -20%, rgba(120, 150, 255, 0.10) 0%, transparent 55%),
+      var(--bg-solid);           /* 实色深蓝 + 顶部极微弱光晕 */
+    color: var(--text-strong);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .popup {
+    padding: 20px 20px 16px;
+    display: flex; flex-direction: column;
+    gap: 16px;                   /* 模块间距充足 */
+  }
+
+  /* ===== 顶部：Logo 标题区 ===== */
+  .header { display: flex; align-items: center; gap: 14px; }
+  .logo {
+    width: 40px; height: 40px; flex-shrink: 0;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #6a5af9 0%, #4a9eff 100%);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; font-weight: 700; color: #fff;
+    letter-spacing: 0.2px;
+    box-shadow: 0 6px 18px rgba(90, 120, 255, 0.45),   /* 柔和投影 */
+                0 0 14px rgba(90, 120, 255, 0.35),     /* 发光 */
+                inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  }
+  .title-group { display: flex; flex-direction: column; gap: 4px; }
+  .title { font-size: 15px; font-weight: 600; letter-spacing: 0.2px; line-height: 1.3; }
+  .version {
+    font-size: 11.5px; font-weight: 400;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.4px;
+  }
+
+  /* ===== 中部：开关模块（glassmorphism 毛玻璃子面板） ===== */
+  .glass-card {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px;
+    padding: 16px 18px;
+    /* 半透明白色 9% + 黑色压制层叠底（多层背景：黑层在上） */
+    background:
+      linear-gradient(rgba(8, 12, 24, 0.40), rgba(8, 12, 24, 0.40)),
+      rgba(255, 255, 255, 0.09);
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+    border: 1px solid var(--border-light);   /* 1px 细半透明白描边 */
+    border-radius: 16px;                     /* 大圆角 */
+    box-shadow: 0 8px 24px rgba(4, 8, 24, 0.35),
+                inset 0 1px 0 rgba(255, 255, 255, 0.10);
+  }
+  .card-info { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  .card-title { font-size: 13.5px; font-weight: 600; letter-spacing: 0.2px; }
+  .card-desc { font-size: 12px; line-height: 1.6; color: var(--text-soft); }
+
+  /* ===== toggle 开关 ===== */
+  .switch { position: relative; width: 46px; height: 26px; flex-shrink: 0; }
+  .switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .track {
+    position: absolute; inset: 0;
+    border-radius: 13px;
+    background: #232a3f;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    cursor: pointer;
+    transition: background 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+  }
+  .thumb {
+    position: absolute; top: 3px; left: 3px;
+    width: 20px; height: 20px; border-radius: 50%;
+    background: #cfd6e6;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.35);
+    transition: transform 0.22s cubic-bezier(0.34, 1.4, 0.64, 1), background 0.22s ease;
+  }
+  .switch input:checked + .track {
+    background: var(--mint);
+    border-color: rgba(99, 216, 164, 0.45);
+    box-shadow: 0 0 14px var(--mint-glow);
+  }
+  .switch input:checked + .track .thumb { transform: translateX(20px); background: #fff; }
+  .switch input:focus-visible + .track {
+    outline: 2px solid rgba(99, 216, 164, 0.5);
+    outline-offset: 2px;
+  }
+  .switch input:disabled + .track { opacity: 0.55; cursor: wait; }
+
+  /* ===== 底部：提示框（图标与文字垂直居中） ===== */
+  .tip {
+    display: flex; align-items: center; gap: 8px;
+    padding: 11px 14px;
+    background: rgba(255, 255, 255, 0.045);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 12px;
+  }
+  .tip-icon { font-size: 12px; line-height: 1; flex-shrink: 0; }
+  .tip-text {
+    font-size: 11.5px; line-height: 1.7;
+    color: var(--text-soft);
+    letter-spacing: 0.2px;
+  }
+  .tip-text.feedback-ok { color: #9fe8c4; }
+  .tip-text.feedback-err { color: #ffb4a8; }
+</style>
+</head>
+<body>
+  <div class="popup">
+    <!-- 顶部：Logo 标题区 -->
+    <header class="header">
+      <div class="logo" aria-hidden="true">2x</div>
+      <div class="title-group">
+        <h1 class="title">视频倍速控制器</h1>
+        <span class="version" id="ver">v1.2.0</span>
+      </div>
+    </header>
+
+    <!-- 中部：启用开关（毛玻璃子面板） -->
+    <section class="glass-card">
+      <div class="card-info">
+        <div class="card-title">启用插件</div>
+        <div class="card-desc">关闭后悬浮球立即收起</div>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="enabled-toggle" aria-label="启用插件">
+        <span class="track"><span class="thumb"></span></span>
+      </label>
+    </section>
+
+    <!-- 底部：提示框 -->
+    <footer class="tip">
+      <span class="tip-icon">💡</span>
+      <span class="tip-text" id="tip">切换对已打开页面即时生效，无需刷新</span>
+    </footer>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>
