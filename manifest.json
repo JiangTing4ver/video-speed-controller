@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "视频倍速控制器",
+  "version": "1.0.0",
+  "description": "在任意网页上可视化控制 HTML5 视频播放速度（0.25x ~ 16x），支持滑块、快捷按钮与位置记忆。",
+  "permissions": ["storage"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>", "file:///*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

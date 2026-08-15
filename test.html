@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>倍速插件 · 本地测试页</title>
+<style>
+  body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; padding: 40px; background: #f5f6fa; color: #333; }
+  h1 { font-size: 20px; }
+  video { width: 640px; height: 360px; background: #222; border-radius: 8px; }
+  .note { color: #777; font-size: 13px; line-height: 1.8; }
+  code { background: #eee; padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+  <h1>视频倍速控制器 · 测试页</h1>
+  <p class="note">
+    此页面用于验证插件是否成功注入。<br>
+    页面脚本先把 <code>video.playbackRate</code> 设为 <code>3</code>，
+    插件注入后会把它改回自己记忆的速度（默认 <code>1</code>），
+    并在悬浮控制条根元素上写入 <code>data-speed</code> / <code>data-video-rate</code> 供检查。
+  </p>
+  <video controls></video>
+  <script>
+    // 模拟"网站自己设置的速度"，用于验证插件会接管控制
+    const v = document.querySelector('video');
+    v.playbackRate = 3;
+    console.log('[test-page] 页面初始 playbackRate =', v.playbackRate);
+  </script>
+</body>
+</html>
