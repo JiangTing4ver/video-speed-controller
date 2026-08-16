@@ -241,16 +241,20 @@
         .ball .glyph.text { font-size: 15px; letter-spacing: .3px; }
         .ball .glyph.emoji { font-size: 21px; }
         /* ---- 控制面板（glassmorphism，与 options 弹窗玻璃卡片一致） ---- */
+        /* ---- 外层卡片：有层次的深色实底容器（非玻璃、非死黑） ---- */
         .panel {
           position: absolute;
           top: 0;
           left: 0;
           width: ${PANEL_WIDTH}px;
-          background: rgba(30, 34, 56, 0.55); /* 回退：不支持 backdrop-filter 时保证可读性 */
-          border: 1px solid rgba(255, 255, 255, 0.16);
+          /* 深色纵向渐变 + 顶部轻微提亮，避免"死黑"平面感 */
+          background: linear-gradient(180deg, rgba(26, 32, 54, 0.97) 0%, rgba(14, 18, 34, 0.98) 100%);
+          border: 1px solid rgba(255, 255, 255, 0.09);
           border-radius: 16px;
           color: #f2f5ff;
-          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+          box-shadow:
+            0 12px 32px rgba(0, 0, 0, 0.45),          /* 底部柔和投影（悬浮层次） */
+            inset 0 1px 0 rgba(255, 255, 255, 0.09);   /* 顶部内侧高光（层次） */
           overflow: hidden;
           opacity: 0;
           transform: scale(.85) translateY(4px);
@@ -258,21 +262,18 @@
           pointer-events: none;
           transition: opacity .16s ease, transform .16s ease;
         }
-        @supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
-          .panel {
-            /* 玻璃拟态：黑色压制层 + 9% 白填充，与 options glass-card 一致 */
-            background:
-              linear-gradient(rgba(8, 12, 24, 0.40), rgba(8, 12, 24, 0.40)),
-              rgba(255, 255, 255, 0.09);
-            -webkit-backdrop-filter: blur(16px);
-            backdrop-filter: blur(16px);
-            border-color: rgba(255, 255, 255, 0.16); /* 1px 细半透明白描边 */
-            color: #f2f5ff;
-            text-shadow: 0 1px 3px rgba(8, 12, 24, 0.5); /* 浅色网页可读性 */
-            box-shadow:
-              0 8px 24px rgba(4, 8, 24, 0.35),
-              inset 0 1px 0 rgba(255, 255, 255, 0.10);
-          }
+        /* ---- 内部模块：glassmorphism 玻璃拟态（与 options glass-card 同配方） ---- */
+        .glass-body {
+          margin: 8px;
+          padding: 11px 12px;
+          border-radius: 12px;
+          background:
+            linear-gradient(rgba(8, 12, 24, 0.42), rgba(8, 12, 24, 0.42)),
+            rgba(255, 255, 255, 0.09);
+          -webkit-backdrop-filter: blur(16px);
+          backdrop-filter: blur(16px);
+          border: 1px solid rgba(255, 255, 255, 0.15);
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
         }
         .wrap.expanded .panel {
           opacity: 1;
@@ -306,7 +307,6 @@
           font-size: 14px; line-height: 1; padding: 2px 6px; border-radius: 6px;
         }
         .fold:hover { background: rgba(255, 255, 255, 0.12); color: #fff; }
-        .body { padding: 12px 12px 10px; }
         .slider { width: 100%; accent-color: #63d8a4; cursor: pointer; margin: 0; }
         .row { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
         .row button {
@@ -363,7 +363,7 @@
             <span class="speed" data-role="speed">1x</span>
             <button class="fold" data-role="fold" title="收起">–</button>
           </div>
-          <div class="body">
+          <div class="glass-body" data-role="glass-body">
             <input class="slider" type="range" min="0.25" max="16" step="0.05"
                    data-role="slider" aria-label="播放速度">
             <div class="row">${presetHtml}</div>
